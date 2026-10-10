@@ -1,0 +1,102 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PLUVIA SENSE - Greater Tunis flood platform</title>
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+:root{--teal:#5db0bd}*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;color:#e8eef5;background:#0d1b2a}
+header{position:fixed;top:0;left:0;right:0;height:56px;z-index:5;display:flex;align-items:center;gap:10px;padding:0 14px;background:rgba(9,22,36,.94)}
+header .sp{flex:1}header #st{font-size:12px;color:#9fb3c8}.wm{height:20px;filter:brightness(0) invert(1)}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 12px;background:#1d3b57;color:#fff}button.on,button.pri{background:var(--teal);color:#06283d;font-weight:600}button:disabled{opacity:.5}
+#map{position:fixed;inset:56px 0 0 0}
+#panel{position:fixed;top:56px;right:0;bottom:0;width:380px;max-width:100vw;z-index:4;overflow:auto;padding:12px;background:rgba(9,22,36,.95);display:none}body.ctrl #panel{display:block}
+.card{background:#14304a;border-radius:10px;padding:10px;margin-bottom:10px}.card ul{margin:6px 0 0;padding-left:18px}.mut{color:#9fb3c8;font-size:12px}
+.badge{padding:2px 8px;border-radius:99px;font-size:11px;color:#06283d;font-weight:700}.bar{height:5px;background:#27465f;border-radius:4px;margin:6px 0}.bar i{display:block;height:100%;background:var(--teal);border-radius:4px}
+.card img,.card video{width:78px;height:58px;object-fit:cover;border-radius:6px;margin:4px 4px 0 0}
+#modal{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center}#modal.show{display:flex}
+#wiz{width:min(520px,94vw);max-height:92vh;overflow:auto;background:#10263b;border-radius:14px;padding:16px}
+#wiz label{display:block;margin:10px 0 4px;color:#9fb3c8;font-size:12px}#wiz select,#wiz textarea,#wiz input{width:100%;padding:8px;border-radius:8px;border:1px solid #2c4b66;background:#0b1a29;color:#fff;font:inherit}
+#cam{width:100%;border-radius:10px;margin-top:8px}#th img,#th video{width:84px;height:62px;object-fit:cover;border-radius:6px;margin:6px 6px 0 0}.row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.dot{text-align:center;cursor:pointer}.dot i{display:block;margin:auto;width:16px;height:16px;border-radius:50%;background:var(--c);border:2px solid #fff;animation:p 1.6s infinite}.dot.sq i{border-radius:3px}.dot b{font-size:11px;color:#fff;text-shadow:0 0 3px #000}
+@keyframes p{0%{box-shadow:0 0 0 0 var(--c)}100%{box-shadow:0 0 0 18px transparent}}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:20;background:#5db0bd;color:#06283d;padding:10px 16px;border-radius:10px;font-weight:600;display:none}
+.maplibregl-popup-content{color:#06283d}
+</style></head><body>
+<header><img src="icon.png" height="38" alt=""><img class="wm" src="wordmark.png" alt="PLUVIA SENSE"><span id="st">connecting...</span><span class="sp"></span>
+<button id="tR" class="on">Report an incident</button><button id="tC">Control room</button><button id="bGeo">Use my location</button></header>
+<div id="map"></div><aside id="panel"></aside>
+<div id="modal"><div id="wiz"><h3 style="margin:0">Report a problem</h3><div id="co" class="mut"></div>
+<label>Type</label><select id="ty"><option value="flood">Flooding</option><option value="accident">Accident</option><option value="drain">Blocked drain</option><option value="power">Power line / electrical hazard</option><option value="other">Other</option></select>
+<label>Severity</label><select id="sv"><option value="1">Low</option><option value="2" selected>Medium</option><option value="3">High - people in danger</option></select>
+<label>Description</label><textarea id="ds" rows="3" placeholder="What is happening?"></textarea>
+<label>Photos / video from your device</label><input id="fi" type="file" accept="image/*,video/*" multiple>
+<div style="margin-top:10px"><button type="button" id="bCam">Open camera</button> <span id="cb" hidden><button type="button" id="bSnap">Capture photo</button> <button type="button" id="bRec">Record 8 s</button></span></div>
+<video id="cam" autoplay playsinline muted hidden></video><div id="th"></div>
+<div class="row"><button type="button" id="bX">Cancel</button><button type="button" class="pri" id="bSend">Send report</button></div></div></div>
+<div id="toast"></div>
+<script>
+const C=['#2bb673','#f2c230','#f08a24','#e5383b'],NAMES=['','WATCH','WARNING','SEVERE'],$=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const map=new maplibregl.Map({container:'map',center:[10.18,36.81],zoom:12.3,pitch:62,bearing:-25,maxPitch:80,style:{version:8,
+ sources:{sat:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19,attribution:'Imagery: Esri, Maxar, Earthstar Geographics'},
+  dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],encoding:'terrarium',tileSize:256,maxzoom:14,attribution:'Terrain: AWS Terrain Tiles'},
+  omt:{type:'vector',url:'https://tiles.openfreemap.org/planet',attribution:'Buildings: OpenFreeMap / OpenStreetMap contributors'}},
+ layers:[{id:'sat',type:'raster',source:'sat'},{id:'bld',type:'fill-extrusion',source:'omt','source-layer':'building',minzoom:14,
+  paint:{'fill-extrusion-color':'#d6dee8','fill-extrusion-height':['coalesce',['get','render_height'],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':.78}}],
+ terrain:{source:'dem',exaggeration:1.3}}});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-left');
+let sensors={},reports=[],sM={},rM={},pin=null,gps=false,media=[],stream=null,mode='report',popup=null;
+function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',3500)}
+function mk(store,id,lng,lat,sq,onclick){if(store[id])return store[id];const e=document.createElement('div');e.className='dot'+(sq?' sq':'');e.innerHTML='<i></i><b></b>';
+ e.onclick=ev=>{ev.stopPropagation();onclick(id)};return store[id]=new maplibregl.Marker({element:e}).setLngLat([lng,lat]).addTo(map)}
+function draw(){for(const s of Object.values(sensors)){if(!isFinite(s.lat))continue;const e=mk(sM,s.id,s.lon,s.lat,false,showSensor).getElement();
+  e.style.setProperty('--c',s.offline?'#7a8896':C[s.level]);e.querySelector('b').textContent=s.name.replace(' (demo)','')}
+ for(const r of reports){const e=mk(rM,r.id,r.lon,r.lat,true,showReport).getElement();e.style.setProperty('--c',r.status==='resolved'?'#7a8896':C[r.severity]);e.querySelector('b').textContent=r.type}}
+function pop(lng,lat,html){popup&&popup.remove();popup=new maplibregl.Popup({offset:14}).setLngLat([lng,lat]).setHTML(html).addTo(map)}
+function showSensor(id){const s=sensors[id];pop(s.lon,s.lat,`<b>${esc(s.name)}</b><br>${s.offline?'offline':`Rain ${s.rain} mm/h<br>Water level ${s.wl} cm<br>Risk ${s.risk}/100<br>Battery ${s.battery??'?'}%`}`)}
+function showReport(id){const r=reports.find(x=>x.id===id);if(r)pop(r.lon,r.lat,`<b>${esc(r.type)}</b> - ${esc(r.status)}<br>Verification ${r.verification}%<br>${esc(r.description)}`)}
+function fly(lng,lat){map.flyTo({center:[lng,lat],zoom:16.2,pitch:65,speed:.8})}
+function panel(){const al=Object.values(sensors).filter(s=>s.level>0).sort((a,b)=>b.risk-a.risk);
+ let h=`<div class="card"><b>Live alerts</b> (${al.length})<div id="wx" class="mut"></div></div>`+al.map(s=>`<div class="card"><span class="badge" style="background:${C[s.level]}">${NAMES[s.level]}</span> <b>${esc(s.name)}</b> <button data-fly="${s.lon},${s.lat}">Locate</button>
+ <div>Rain ${s.rain} mm/h - Water ${s.wl} cm - Risk ${s.risk}/100</div><div class="bar"><i style="width:${s.risk}%"></i></div>
+ <div class="mut">Trend ${s.pred.slope} cm/min${s.pred.in30!=null?` - about ${s.pred.in30} cm in 30 min`:''}${s.pred.eta?` - critical level in about ${s.pred.eta} min`:''}</div>
+ <ul>${s.actions.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`).join('');
+ h+=`<div class="card"><b>Reports</b> (${reports.length})</div>`+reports.slice(0,30).map(r=>`<div class="card"><span class="badge" style="background:${C[r.severity]}">${esc(r.type).toUpperCase()}</span> <b>${esc(r.source)}</b> <span class="mut">${new Date(r.ts).toLocaleTimeString()}</span> <button data-fly="${r.lon},${r.lat}">Locate</button>
+ <div class="mut">Verification ${r.verification}%${r.nearest?` - nearest node ${esc(r.nearest.name)} (${r.nearest.km} km)`:''}</div><div class="bar"><i style="width:${r.verification}%"></i></div>
+ <div>${esc(r.description)}</div><div>${r.media.map(m=>m.kind==='video'?`<video src="${m.url}" controls></video>`:`<a href="${m.url}" target="_blank"><img src="${m.url}"></a>`).join('')}</div>
+ <ul>${r.actions.map(a=>`<li>${esc(a)}</li>`).join('')}</ul>
+ <div>${['acknowledged','dispatched','resolved'].map(st=>`<button data-id="${r.id}" data-st="${st}" ${r.status===st?'class="on"':''}>${st}</button>`).join(' ')}</div></div>`).join('');
+ $('#panel').innerHTML=h;wx()}
+let wxd=null;async function wx(){if(!wxd)try{wxd=await(await fetch('/api/weather')).json()}catch{wxd={error:1}}
+ const e=$('#wx');if(e)e.textContent=wxd.error?'Forecast unavailable':`Forecast (${wxd.source}): now ${wxd.now} mm - next 6 h: ${wxd.next6h.join(', ')} mm`}
+$('#panel').onclick=async e=>{const b=e.target;if(b.dataset.fly){const[lng,lat]=b.dataset.fly.split(',').map(Number);fly(lng,lat)}
+ if(b.dataset.st)await fetch('/api/reports/'+b.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:b.dataset.st})})};
+const es=new EventSource('/api/stream');es.onopen=()=>$('#st').textContent='live';es.onerror=()=>$('#st').textContent='reconnecting...';
+es.onmessage=e=>{const m=JSON.parse(e.data);
+ if(m.type==='state'){sensors=Object.fromEntries(m.data.sensors.map(s=>[s.id,s]));reports=m.data.reports}
+ else if(m.type==='sensor')sensors[m.data.id]=m.data;
+ else{const i=reports.findIndex(r=>r.id===m.data.id);if(i<0){reports.unshift(m.data);if(m.data.source!=='citizen')toast('New automatic alert: '+m.data.description.slice(0,60))}else reports[i]=m.data}
+ draw();panel()};
+function setMode(m){mode=m;document.body.classList.toggle('ctrl',m==='ctrl');$('#tR').classList.toggle('on',m==='report');$('#tC').classList.toggle('on',m==='ctrl')}
+$('#tR').onclick=()=>setMode('report');$('#tC').onclick=()=>setMode('ctrl');
+const coords=()=>{const p=pin.getLngLat();$('#co').textContent=`Pin: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}${gps?' (GPS)':' (placed on map)'}`};
+function setPin(lng,lat,g){gps=g;if(!pin){pin=new maplibregl.Marker({color:'#e5383b',draggable:true}).setLngLat([lng,lat]).addTo(map);pin.on('dragend',()=>{gps=false;coords()})}else pin.setLngLat([lng,lat]);coords()}
+function openWiz(){$('#modal').classList.add('show')}
+function closeWiz(){$('#modal').classList.remove('show');stream&&stream.getTracks().forEach(t=>t.stop());stream=null;$('#cam').hidden=true;$('#cb').hidden=true}
+map.on('click',e=>{if(mode!=='report')return;setPin(e.lngLat.lng,e.lngLat.lat,false);openWiz()});
+$('#bGeo').onclick=()=>navigator.geolocation.getCurrentPosition(p=>{setPin(p.coords.longitude,p.coords.latitude,true);map.flyTo({center:[p.coords.longitude,p.coords.latitude],zoom:17,pitch:60});setMode('report');openWiz()},()=>toast('Location unavailable - tap the map instead'),{enableHighAccuracy:true});
+function thumbs(){$('#th').innerHTML=media.map(m=>m.kind==='video'?`<video src="${m.data}" muted></video>`:`<img src="${m.data}">`).join('')}
+const add=m=>{media.push(m);thumbs()};
+async function toMedia(f){if(f.type.startsWith('image/')){const b=await createImageBitmap(f),k=Math.min(1,1280/Math.max(b.width,b.height)),c=document.createElement('canvas');c.width=b.width*k;c.height=b.height*k;c.getContext('2d').drawImage(b,0,0,c.width,c.height);return{kind:'image',data:c.toDataURL('image/jpeg',.72)}}
+ if(f.size>14e6){toast('Video too large (max 14 MB)');return null}return new Promise(ok=>{const r=new FileReader();r.onload=()=>ok({kind:'video',data:r.result});r.readAsDataURL(f)})}
+$('#fi').onchange=async e=>{for(const f of e.target.files){const m=await toMedia(f);m&&add(m)}e.target.value=''};
+$('#bCam').onclick=async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});$('#cam').srcObject=stream;$('#cam').hidden=false;$('#cb').hidden=false}catch{toast('Camera unavailable (needs localhost/HTTPS and permission)')}};
+$('#bSnap').onclick=()=>{const v=$('#cam'),c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);add({kind:'image',data:c.toDataURL('image/jpeg',.72)})};
+$('#bRec').onclick=()=>{const ch=[],r=new MediaRecorder(stream,MediaRecorder.isTypeSupported('video/webm')?{mimeType:'video/webm'}:{});r.ondataavailable=e=>ch.push(e.data);
+ r.onstop=()=>{const t=(r.mimeType||'video/mp4').split(';')[0],rd=new FileReader();rd.onload=()=>add({kind:'video',data:rd.result});rd.readAsDataURL(new Blob(ch,{type:t}))};
+ r.start();$('#bRec').textContent='Recording...';setTimeout(()=>{r.stop();$('#bRec').textContent='Record 8 s'},8000)};
+$('#bX').onclick=closeWiz;
+$('#bSend').onclick=async()=>{if(!pin)return;const p=pin.getLngLat();$('#bSend').disabled=true;
+ try{const r=await fetch('/api/reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:$('#ty').value,severity:+$('#sv').value,description:$('#ds').value,lat:p.lat,lon:p.lng,gps,media})});
+  if(!r.ok)throw 0;const j=await r.json();toast(`Report sent - verification score ${j.verification}%`);closeWiz();$('#ds').value='';media=[];thumbs();pin.remove();pin=null}catch{toast('Could not send the report')}
+ $('#bSend').disabled=false};
+</script></body></html>
